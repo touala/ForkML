@@ -100,8 +100,13 @@ main_path <- args[1] # path dataset directory
 
 cmb_name <- "VRComplete"
 nb_pulse <- 2
-length_threshold <- 90000
+length_threshold <- 90000 # Default
 length_threshold_hela <- length_threshold
+
+df_length_threshold <- data.frame(
+    sample=c("WT_rep1", "WT_rep2", "WT_rep3", "WT_rep4", "HU_rep1", "HU_rep2", "APH_rep1", "APH_rep2", "WT_rep4_R10", "HeLa_rep1", "HeLa_rep2", "A549", "BJ", "JEG3", "LoVo"),
+    min_read_length=c(length_threshold, length_threshold, length_threshold, length_threshold, length_threshold, length_threshold, length_threshold, length_threshold, length_threshold, length_threshold_hela, length_threshold_hela, 70000, 100000, 80000, 90000)
+)
 
 sample_clean_name <- data.frame(
     original=c("VR34", "VR36", "VR37", "VR53", "VR38", "VR40", "VR39", "VR41", "VR54", "FP7", "VR57", "FP10", "FP12"),
@@ -110,6 +115,14 @@ sample_clean_name <- data.frame(
     clean=c(paste0("Untreated (",seq(1,4),")"), paste0("HU 100 µM (",seq(1,2),")"), paste0("APH 100 nM (",seq(1,2),")"), "Untreated (4) R10", "HeLa Untreated (0) R9", "HeLa Untreated (0)", "HeLa Untreated (1)", "HeLa Untreated (2)"),
     mycol=c("#A7CAAF", "#88CF98", "#42C05E", "#1B9437", "#F78C41", "#ED6506", "#D3618C", "#F35A94", "#1B9437", "#5A9BD5", "#5A9BD5", "#6D95C9", "#3E6FB0")
 )
+sample_bonus_clean_name <- data.frame(
+    original=c("FP20", "FP19", "FP21", "FP22"),
+    simple=c("BJ", "A549", "JEG3", "LoVo"),
+    pore_type=c("R10", "R10", "R10", "R10"),
+    clean=c("BJ-hTERT Untreated", "A549 Untreated", "JEG-3 Untreated", "LoVo Untreated"),
+    mycol=c("#BF743D", "#1BB3C1", "#DDB5F7", "#F0C44D")
+)
+sample_clean_name <- rbind(sample_clean_name, sample_bonus_clean_name)
 sample_clean_name$clean <- factor(sample_clean_name$clean, levels=sample_clean_name$clean)
 sample_clean_name$simple <- factor(sample_clean_name$simple, levels=sample_clean_name$simple)
 
@@ -142,6 +155,7 @@ example_HCT116_UT_R10_rep4 <- readRDS(file=paste0(main_path, "/example_reads.HCT
 example_HCT116_HU_R9_rep1 <- readRDS(file=paste0(main_path, "/example_reads.HCT116_HU_R9_rep1.RDS"))
 example_HCT116_APH_R9_rep1 <- readRDS(file=paste0(main_path, "/example_reads.HCT116_APH_R9_rep1.RDS"))
 example_HeLa_UT_R10_rep1 <- readRDS(file=paste0(main_path, "/example_reads.HeLa_UT_R10_rep1.RDS"))
+example_bonus <- readRDS(file=paste0(main_path, "/example_reads.bonus.RDS"))
 
 #   _____  _     _____ _____                      
 #  |  __ \| |   |  _  |  ___|                     
@@ -175,7 +189,9 @@ forkml_event_annotation_r10 <- readRDS(file=paste0(main_path, "/forkml_event_ann
 forkml_fork_annotation_r10_ctrl <- readRDS(file=paste0(main_path, "/forkml_fork_annotation_r10_ctrl.RDS"))
 forkml_speed_annotation_r10_ctrl <- readRDS(file=paste0(main_path, "/forkml_speed_annotation_r10_ctrl.RDS"))
 forkml_event_annotation_r10_ctrl <- readRDS(file=paste0(main_path, "/forkml_event_annotation_r10_ctrl.RDS"))
-
+forkml_fork_annotation_bonus <- readRDS(file=paste0(main_path, "/forkml_fork_annotation_bonus.RDS"))
+forkml_speed_annotation_bonus <- readRDS(file=paste0(main_path, "/forkml_speed_annotation_bonus.RDS"))
+forkml_event_annotation_bonus <- readRDS(file=paste0(main_path, "/forkml_event_annotation_bonus.RDS"))
 
 forkml_event_annotation_random_marked <- readRDS(file=paste0(main_path, "/forkml_event_annotation_random_marked.RDS"))
 replication_timing_v1 <- read.table(paste0(main_path, "/timing_HR_allbin_liftover_v1.bed"), header=TRUE, stringsAsFactors=TRUE)
@@ -186,6 +202,7 @@ df_speed_manual <- readRDS(file=paste0(main_path, "/df_speed_manual.RDS"))
 df_speed_auto <- readRDS(file=paste0(main_path, "/df_speed_auto.RDS"))
 df_speed_manual_r10 <- readRDS(file=paste0(main_path, "/df_speed_manual_r10.RDS"))
 df_speed_manual_hela <- readRDS(file=paste0(main_path, "/df_speed_manual_hela.RDS"))
+df_speed_manual_bonus <- readRDS(file=paste0(main_path, "/df_speed_manual_bonus.RDS"))
 
 repartition_WT <- compute.iz.content(forkml_event_annotation_hct116 %>% dplyr::filter(grepl("Untreated", full_name) & !is_outlier) %>% mutate(sample=full_name), IZ_wavelet) %>% dplyr::rename(non_IZ = `FALSE`, IZ = `TRUE`)
 repartition_WT_all <- compute.iz.content(forkml_event_annotation_hct116 %>% dplyr::filter(grepl("Untreated", full_name) & !is_outlier) %>% mutate(sample="Untreated - All"), IZ_wavelet) %>% dplyr::rename(non_IZ = `FALSE`, IZ = `TRUE`)
@@ -203,25 +220,25 @@ rownames(repartition_matrix) <- c("Untreated","Random")
 #            __/ |                    
 #           |___/                     
 
-
-plot_example <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, cor_factor_point=0.7, cor_factor_line=0.7, opt_title=NULL, make_raster=TRUE, forced_arrow=TRUE){
- # cor_factor_point=0.7
- # cor_factor_line=0.7
-
+plot_example <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, cor_factor_point=0.7, cor_factor_line=0.7, opt_title=NULL, make_raster=TRUE, forced_arrow=TRUE, potluck=FALSE){
     simple_labels <- example_reads %>%
         group_by(clean_read_id) %>%
         mutate(read_length=n()) %>%
         dplyr::filter(!is.na(avg)) %>%
         mutate(xlab=min(positions), read_length_w_data=diff(range(positions)) + 1) %>%
         distinct(clean_read_id, chrom, read_length, read_length_w_data, xlab) %>%
-        mutate(full_lab=as.character(clean_read_id), lab=paste0("#", substr(full_lab, nchar(full_lab), nchar(full_lab)), ", ",chrom," (",round(read_length_w_data/1000,0)," kb)"))
+        mutate(full_lab=as.character(clean_read_id), lab=paste0("#", substr(full_lab, nchar(full_lab), nchar(full_lab)), ", ",chrom," (",round(read_length_w_data/1000,0)," kb)"))        
+    if(potluck){
+        simple_labels <- simple_labels %>%
+            mutate(full_lab=as.character(clean_read_id), lab=paste0(sub(" .*", "", full_lab), " #", substr(full_lab, nchar(full_lab), nchar(full_lab)), ", ",chrom," (",round(read_length_w_data/1000,0)," kb)"))
+    }
 
     forkml_fork_annotation <- forkml_fork_annotation %>%
         dplyr::filter(read_id %in% unique(example_reads$read_id)) %>%
         left_join(example_reads %>% distinct(clean_read_id, read_id), by=join_by(read_id)) %>%
         mutate(direction=as.factor(ifelse(direction==1, "Rightward fork", "Leftward fork"))) %>%
-        mutate(xleft=ifelse(direction=="Rightward fork", pred_inf, pred_sup)) %>%
-        mutate(xright=ifelse(direction=="Rightward fork", pred_sup, pred_inf)) %>%
+        mutate(xstart=ifelse(direction=="Rightward fork", pred_inf, pred_sup)) %>%
+        mutate(xend=ifelse(direction=="Rightward fork", pred_sup, pred_inf)) %>%
         mutate(clean_read_id = droplevels(clean_read_id)) # Fix plotting issue
 
     forkml_speed_annotation <- forkml_speed_annotation %>%
@@ -260,8 +277,8 @@ plot_example <- function(example_reads, forkml_fork_annotation, forkml_speed_ann
     gp <- gp +
         geom_line(aes(x=positions, y=smooth_signal_norm, col="Gaussian smoothing (2500 bp)"), linewidth=linewidth_target*cor_factor_line) +
 
-        # geom_segment(data=forkml_fork_annotation, aes(x=xleft, xend=xright, y=0.9, yend=0.9, col=direction), linewidth=0.5, lineend="round", linejoin="round", arrow=arrow(length=unit(0.05, "inches"))) +
-        geom_arrow_segment(data=forkml_fork_annotation, aes(x=xleft, xend=xright, y=0.9, yend=0.9, color=direction), linewidth=0.3, lineend="round", linejoin="round", arrow_head=arrow_head_wings(offset=30, inset=40), length_head=2.6, force_arrow=forced_arrow) + # , arrow_angle=20, arrow_length=0.03
+        # geom_segment(data=forkml_fork_annotation, aes(x=xstart, xend=xend, y=0.9, yend=0.9, col=direction), linewidth=0.5, lineend="round", linejoin="round", arrow=arrow(length=unit(0.05, "inches"))) +
+        geom_arrow_segment(data=forkml_fork_annotation, aes(x=xstart, xend=xend, y=0.9, yend=0.9, color=direction), linewidth=0.3, lineend="round", linejoin="round", arrow_head=arrow_head_wings(offset=30, inset=40), length_head=2.6, force_arrow=forced_arrow) + # , arrow_angle=20, arrow_length=0.03
 
         geom_segment(data=forkml_speed_annotation, aes(x=pos_left, xend=pos_right, y=y_speeds, yend=y_speeds, col=direction), linewidth=0.12, lineend="round", linejoin="round", show.legend=FALSE) +
         geom_segment(data=forkml_speed_annotation, aes(x=pos_left, xend=pos_left, y=y_speeds + half_b_height, yend=y_speeds - half_b_height, col=direction), linewidth=0.2, lineend="round", linejoin="round", show.legend=FALSE) +
@@ -276,7 +293,7 @@ plot_example <- function(example_reads, forkml_fork_annotation, forkml_speed_ann
         scale_color_manual(name=NULL, values=mypal, breaks=names(mypal)) +
         scale_shape_manual(name=NULL, values=mypal2) +
         scale_x_continuous(expand=expansion(mult=c(0.05, 0.04)), labels=function(x) scales::comma(x / 1000), name="Genomic position (kb)") +
-        scale_y_continuous(expand=expansion(mult=c(0.05, 0.05)), name="BrdU probability") +
+        scale_y_continuous(expand=expansion(mult=c(0.05, 0.05)), name="Predicted BrdU content") +
         theme(
             strip.background = element_blank(),
             strip.text.x = element_blank(),
@@ -696,6 +713,51 @@ plot_Fig2 <- function(forkml_speed_annotation, replication_timing, all_chromatin
 }
 plot_Fig2(forkml_speed_annotation_hct116 %>% dplyr::filter(read_length > length_threshold & grepl("Untreated", full_name) & !is_outlier), replication_timing_v1, all_chromatine_stats, repartition_matrix, repartition_WT, repartition_WT_all, repartition_random)
 
+plot_Fig3 <- function(forkml_speed_annotation, df_length_threshold){
+    sample_order <- unique(forkml_speed_annotation$full_name)
+    forkml_speed_annotation <- forkml_speed_annotation %>%
+        left_join(df_length_threshold, by=join_by(sample)) %>%
+        dplyr::filter(read_length > min_read_length & !is_outlier)
+
+    forkml_speed_annotation <- forkml_speed_annotation %>%
+        mutate(full_name=factor(full_name, levels=sample_order))
+
+    n_labels <- forkml_speed_annotation %>%
+        group_by(full_name) %>%
+        summarise(n = n(), .groups = "drop") %>%
+        mutate(lab=ifelse(row_number()==1, paste0("n = ", n), n))
+
+    median_labels <- forkml_speed_annotation %>%
+        group_by(full_name) %>%
+        summarise(median_fork_speed = round(median(fork_speed, na.rm = TRUE), 0), .groups = "drop") %>%
+        mutate(lab=ifelse(row_number()==1, paste0("Med. = ", median_fork_speed), median_fork_speed))
+
+    label_size <- 5/.pt
+    gp1 <- ggplot(forkml_speed_annotation, aes(x=full_name, y=fork_speed)) +
+        geom_violin(aes(fill=full_name), linewidth=0.4, scale="width", show.legend=TRUE) +
+        geom_boxplot(aes(fill=full_name), linewidth=0.2, width=0.2, outlier.shape=NA, show.legend=FALSE) +
+        stat_summary(fun="mean", geom="point", color="red", size=0.7) +
+        geom_text(data = n_labels, aes(x = full_name, y = 0, label = lab), col=1, size = label_size) +
+        geom_text(data = median_labels, aes(x = full_name, y = -200, label = lab), col=1, size = label_size) +
+        scale_fill_manual(values=forkml_speed_annotation %>% distinct(full_name, mycol) %>% { setNames(.$mycol, .$full_name) }, breaks=levels(forkml_speed_annotation$full_name)) +
+        coord_cartesian(ylim=c(-200, 2500)) +
+        theme_bw() +
+        theme(
+            axis.text.x = element_text(angle=45, hjust=1),
+            axis.text = element_text(size = 5),
+            axis.title = element_text(size = 7),
+            axis.title.x = element_blank(),
+
+            legend.position = "none"
+        ) +
+        labs(y="Fork speed (bp/min)", fill=NULL)
+
+    blank <- ggplot() + theme_void()
+    layout <- ((gp1 + blank) / plot_spacer()) + plot_layout(heights = c(2.5, 9))
+    ggsave("Fig3.pdf", layout, width = 180, height = 210, units = "mm")
+}
+plot_Fig3(rbind(forkml_speed_annotation_r10 %>% dplyr::filter(full_name %in% c("Untreated (4) R10","HeLa Untreated (1)")) %>% mutate(full_name=gsub(" Untreated \\(1\\)","",gsub("Untreated \\(4\\) R10","HCT116",as.character(full_name)))), forkml_speed_annotation_bonus %>% mutate(full_name=gsub(" Untreated","",as.character(full_name)))), df_length_threshold)
+
 plot_FigS1 <- function(example_amp){
     df_offsetting <- data.frame(
         read_id=c("3e24582d-2e0b-4af6-a3b5-975a883452c5","5a05d420-5f20-4589-95cb-3de632211b60","ee3f62a1-6961-4777-82b5-a65ba3b98cd9","d4626891-abe5-4f95-a11a-05925a90a61b","82a24dcc-450e-4625-b3e2-ebbafd8bf7eb"),
@@ -720,7 +782,7 @@ plot_FigS1 <- function(example_amp){
         scale_color_manual(name="BrdU signal:", values=mypal) +
         scale_x_continuous(limits=c(-3000, 62000), expand=expansion(mult=c(0.01, 0), add=c(0, 1))) +
         scale_y_continuous(expand=expansion(mult=c(0.05, 0.05))) +
-        labs(x="Relative position within reads (bp)", y="BrdU probability") +
+        labs(x="Relative position within reads (bp)", y="Predicted BrdU content") +
         theme(legend.position="bottom") +
         guides(color = guide_legend(override.aes = list(linewidth = 1, size = 2)))
 
@@ -752,7 +814,7 @@ plot_FigS2 <- function(example_ipd){
         scale_color_manual(name="BrdU signal:", values=mypal) +
         scale_x_continuous(limits=c(-3000, 62000), expand=expansion(mult=c(0.01, 0), add=c(0, 1))) +
         scale_y_continuous(expand=expansion(mult=c(0.05, 0.05))) +
-        labs(x="Position centered on first pulse (bp)", y="BrdU probability") +
+        labs(x="Position centered on first pulse (bp)", y="Predicted BrdU content") +
         theme(legend.position="bottom") +
         guides(color = guide_legend(override.aes = list(linewidth = 1, size = 2)))
 
@@ -821,7 +883,7 @@ plot_FigS4 <- function(forkml_fork_annotation, rfd_data, rfd_bin_size, nb_subgro
 }
 plot_FigS4(forkml_fork_annotation_hct116 %>% dplyr::filter(grepl("Untreated", full_name) & !is_outlier), gloe_seqx2, 10000, 5)
 
-plot_FigS5 <- function(df_speed_manual, df_speed_auto){
+plot_FigS6 <- function(df_speed_manual, df_speed_auto){
     df_all <- rbind(df_speed_manual, df_speed_auto)
 
     n_labels <- df_all %>%
@@ -858,29 +920,29 @@ plot_FigS5 <- function(df_speed_manual, df_speed_auto){
 
     blank <- plot_spacer()
     layout <- (gp1 / blank / blank)
-    ggsave("FigS5.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS6.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS5(df_speed_manual, df_speed_auto)
+plot_FigS6(df_speed_manual, df_speed_auto)
 
-plot_FigS6 <- function(forkml_speed_annotation, individual_sample){
+plot_FigS7 <- function(forkml_speed_annotation, individual_sample){
     plots <- make.length.plots(forkml_speed_annotation, individual_sample)
 
     blank <- plot_spacer()
     layout <- ((plots$gp1) / (plots$gp2 + plots$gp3) / blank) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
-    ggsave("FigS6.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS7.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS6(forkml_speed_annotation_hct116 %>% dplyr::filter(!is_outlier & !is.na(full_name)), "Untreated \\(1\\)")
+plot_FigS7(forkml_speed_annotation_hct116 %>% dplyr::filter(!is_outlier & !is.na(full_name)), "Untreated \\(1\\)")
 
-plot_FigS7 <- function(example_reads_a, example_reads_b, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, forced_arrow){
+plot_FigS8 <- function(example_reads_a, example_reads_b, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, forced_arrow){
     gp1 <- plot_example(example_reads_a, forkml_fork_annotation %>% dplyr::filter(sample %in% unique(example_reads_a$simple)), forkml_speed_annotation %>% dplyr::filter(sample %in% unique(example_reads_a$simple)), forkml_event_annotation %>% dplyr::filter(sample %in% unique(example_reads_a$simple)), 0.1, 0.7, "HCT116 HU 100 µM (1)", TRUE, forced_arrow)
     gp2 <- plot_example(example_reads_b, forkml_fork_annotation %>% dplyr::filter(sample %in% unique(example_reads_b$simple)), forkml_speed_annotation %>% dplyr::filter(sample %in% unique(example_reads_b$simple)), forkml_event_annotation %>% dplyr::filter(sample %in% unique(example_reads_b$simple)), 0.1, 0.7, "HCT116 APH 100 nM (1)")
 
     layout <- (gp1 / gp2 / plot_spacer()) + plot_layout(heights = c(5, 5, 1)) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
-    ggsave("FigS7.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS8.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS7(example_HCT116_HU_R9_rep1, example_HCT116_APH_R9_rep1, forkml_fork_annotation_hct116, forkml_speed_annotation_hct116, forkml_event_annotation_hct116, FALSE)
+plot_FigS8(example_HCT116_HU_R9_rep1, example_HCT116_APH_R9_rep1, forkml_fork_annotation_hct116, forkml_speed_annotation_hct116, forkml_event_annotation_hct116, FALSE)
 
-plot_FigS8 <- function(forkml_speed_annotation){
+plot_FigS9 <- function(forkml_speed_annotation){
     df_fork_speed <- forkml_speed_annotation %>%
         mutate(fork_type=ifelse(fork_type=="leading","Leading","Lagging")) %>%
         mutate(fork_type=factor(fork_type, levels = c("Leading", "Lagging")))
@@ -954,11 +1016,11 @@ plot_FigS8 <- function(forkml_speed_annotation){
     layout <- gp1 + gp2 + plot_spacer() +
         plot_layout(design=layout_design) +
         plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
-    ggsave("FigS8.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS9.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS8(forkml_speed_annotation_hct116 %>% dplyr::filter(read_length > length_threshold & !is_outlier))
+plot_FigS9(forkml_speed_annotation_hct116 %>% dplyr::filter(read_length > length_threshold & !is_outlier))
 
-plot_FigS9 <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, df_speed_manual_r10, forkml_speed_annotation_hct116, length_threshold){
+plot_FigS10 <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, df_speed_manual_r10, forkml_speed_annotation_hct116, length_threshold){
     gp1 <- plot_example(example_reads, forkml_fork_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), forkml_speed_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), forkml_event_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), 0.1, 0.7, "Untreated (4) R10")
 
     df_manual <- df_speed_manual_r10 %>% dplyr::filter(read_length > length_threshold & grepl("good$", subset_name)) %>% dplyr::select(full_name, mycol, data_type, read_id, fork_speed)
@@ -1013,11 +1075,11 @@ plot_FigS9 <- function(example_reads, forkml_fork_annotation, forkml_speed_annot
         area(t=top_height + 3, b=top_height + 3, l=1, r=7)
     )
     layout <- wrap_plots(gp1, gp2, design = layout_design) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
-    ggsave("FigS9.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS10.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS9(example_HCT116_UT_R10_rep4, forkml_fork_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), forkml_speed_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), forkml_event_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), df_speed_manual_r10, forkml_speed_annotation_hct116 %>% dplyr::filter(full_name=="Untreated (4)") %>% mutate(full_name="Untreated (4) R9"), length_threshold)
+plot_FigS10(example_HCT116_UT_R10_rep4, forkml_fork_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), forkml_speed_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), forkml_event_annotation_r10 %>% dplyr::filter(!grepl("HeLa", sample)), df_speed_manual_r10, forkml_speed_annotation_hct116 %>% dplyr::filter(full_name=="Untreated (4)") %>% mutate(full_name="Untreated (4) R9"), length_threshold)
 
-plot_FigS10 <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, df_manual_hela, length_threshold_hela){
+plot_FigS11 <- function(example_reads, forkml_fork_annotation, forkml_speed_annotation, forkml_event_annotation, df_manual_hela, length_threshold_hela){
     gp1 <- plot_example(example_reads, forkml_fork_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), forkml_speed_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), forkml_event_annotation %>% dplyr::filter(sample %in% unique(example_reads$simple)), 0.1, 0.7, "HeLa Untreated (1)")
 
     df_manual_hela <- df_manual_hela %>% dplyr::filter(read_length > length_threshold_hela & grepl("all$", subset_name)) %>% dplyr::select(full_name, mycol, data_type, read_id, fork_speed) 
@@ -1074,7 +1136,83 @@ plot_FigS10 <- function(example_reads, forkml_fork_annotation, forkml_speed_anno
         area(t=top_height + 3, b=top_height + 3, l=1, r=7)
     )
     layout <- wrap_plots(gp1, gp2, design = layout_design) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
-    ggsave("FigS10.pdf", layout, width = 180, height = 210, units = "mm")
+    ggsave("FigS11.pdf", layout, width = 180, height = 210, units = "mm")
 }
-plot_FigS10(example_HeLa_UT_R10_rep1, forkml_fork_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), forkml_speed_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), forkml_event_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), df_speed_manual_hela, length_threshold_hela)
+plot_FigS11(example_HeLa_UT_R10_rep1, forkml_fork_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), forkml_speed_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), forkml_event_annotation_r10 %>% dplyr::filter(grepl("HeLa", sample)), df_speed_manual_hela, length_threshold_hela)
+
+plot_FigS12 <- function(example_reads, forkml_fork_annotation_bonus, forkml_speed_annotation_bonus, forkml_event_annotation_bonus, df_speed_manual_bonus, df_length_threshold){
+    gp1 <- plot_example(example_reads, forkml_fork_annotation_bonus %>% dplyr::filter(!is_outlier & sample %in% unique(example_reads$simple)), forkml_speed_annotation_bonus %>% dplyr::filter(!is_outlier & sample %in% unique(example_reads$simple)), forkml_event_annotation_bonus %>% dplyr::filter(!is_outlier & sample %in% unique(example_reads$simple)), 0.1, 0.7, "Additional cell lines", potluck=TRUE)
+
+    df_manual_bonus <- df_speed_manual_bonus %>%
+        left_join(df_length_threshold, by=join_by(sample)) %>%
+        dplyr::filter(read_length > min_read_length & grepl("all$", subset_name)) %>%
+        dplyr::select(full_name, mycol, data_type, read_id, fork_speed) 
+    df_auto_bonus <- forkml_speed_annotation_bonus %>%
+        dplyr::mutate(read_id=gsub("read_","",read_id)) %>%
+        dplyr::filter(read_id %in% as.character(unique(df_manual_bonus$read_id))) %>%
+        dplyr::select(full_name, mycol, data_type, read_id, fork_speed)
+    df_auto_bonus_all <- forkml_speed_annotation_bonus %>%
+        left_join(df_length_threshold, by=join_by(sample)) %>%
+        dplyr::filter(read_length > min_read_length & !is_outlier) %>%
+        dplyr::select(full_name, mycol, data_type, read_id, fork_speed)
+
+    df_all_bonus <- rbind(
+        rbind(df_manual_bonus, df_auto_bonus) %>% 
+            mutate(full_name = paste0(full_name, " - subset")), 
+        rbind(df_auto_bonus_all) %>% 
+            mutate(full_name = paste0(full_name, " - full dataset"))
+    )
+    df_all_bonus$data_type <- factor(df_all_bonus$data_type, levels=unique(df_all_bonus$data_type), ordered = TRUE)
+    df_all_bonus$full_name <- gsub(" R10", "", df_all_bonus$full_name)
+    df_all_bonus$full_name <- factor(df_all_bonus$full_name, levels=unique(df_all_bonus$full_name), ordered = TRUE)
+
+    base_order <- levels(df_speed_manual_bonus$full_name)
+    lvl_long <- levels(df_all_bonus$full_name)
+    new_levels <- unlist(lapply(base_order, function(b) {grep(paste0("^", b), lvl_long, value = TRUE)}))
+    df_all_bonus$full_name <- factor(df_all_bonus$full_name, levels = new_levels)
+
+    n_labels <- df_all_bonus %>%
+        group_by(full_name, mycol, data_type) %>%
+        summarise(n = n(), .groups = "drop") %>%
+        mutate(lab=ifelse(row_number()==1, paste0("n = ", n), n))
+
+    median_labels <- df_all_bonus %>%
+        group_by(full_name, mycol, data_type) %>%
+        summarise(median_fork_speed = round(median(fork_speed, na.rm = TRUE), 0), .groups = "drop") %>%
+        mutate(lab=ifelse(row_number()==1, paste0("Med. = ", median_fork_speed), median_fork_speed))
+
+    plot_offsets <- 0.93
+    label_size <- 5/.pt
+    gp2 <- ggplot(df_all_bonus, aes(x=full_name, y=fork_speed, lty=data_type)) +
+        geom_violin(aes(fill=mycol), linewidth=0.4, position=position_dodge(width=plot_offsets), scale="width") +
+        geom_boxplot(aes(fill=mycol), linewidth=0.2, width=0.2, outlier.shape=NA, position=position_dodge(width=plot_offsets), show.legend=FALSE) +
+        stat_summary(fun="mean", geom="point", color="red", position=position_dodge(width=plot_offsets), size=0.2) +
+
+        geom_text(data = n_labels, aes(x = full_name, y = 0, label = lab), size = label_size, position=position_dodge(width=plot_offsets)) +
+        geom_text(data = median_labels, aes(x = full_name, y = -200, label = lab), size = label_size, position=position_dodge(width=plot_offsets)) +
+
+        scale_fill_identity() +
+        scale_linetype_manual(values=c("Manual"="dashed", "Automated"="solid")) +
+        coord_cartesian(ylim=c(-200, 2500)) +
+        labs(x=NULL, y="Fork speed (bp/min)", lty="Annotation type") +
+        theme_bw() +
+        theme(
+            axis.text = element_text(size = 5),
+            axis.title = element_text(size = 7),
+            axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.title = element_text(size = 7, face = "bold"),
+            legend.text = element_text(size = 6)
+        )
+
+    top_height <- 5
+    layout_design <- c(
+        area(t=1, b=top_height, l=1, r=7),  # gp1
+        area(t=top_height + 1, b=top_height + 2, l=1, r=7),  # gp2
+        area(t=top_height + 3, b=top_height + 3, l=1, r=7)
+    )
+    layout <- wrap_plots(gp1, gp2, design = layout_design) + plot_annotation(tag_levels = 'a') & theme(plot.tag = element_text(face = 'bold', size = 7))
+    ggsave("FigS12.pdf", layout, width = 180, height = 210, units = "mm")
+}
+plot_FigS12(example_bonus, forkml_fork_annotation_bonus, forkml_speed_annotation_bonus, forkml_event_annotation_bonus, df_speed_manual_bonus, df_length_threshold)
+
 

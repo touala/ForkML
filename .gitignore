@@ -3,4 +3,5 @@ models/default_R9.h5
 models/BrdU_megalodon.json
 training/src/accessories/
 training/src/__pycache__/
+figures/datasets_figures.old.tar.gz
 figures/datasets_figures.tar.gz
